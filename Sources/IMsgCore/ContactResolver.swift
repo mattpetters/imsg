@@ -20,6 +20,28 @@ public struct ContactMatch: Equatable, Sendable {
   }
 }
 
+/// A contact's thumbnail image. `data` always starts at the image magic bytes.
+public struct ContactPhoto: Equatable, Sendable {
+  public let mimeType: String
+  public let data: Data
+
+  /// Detects JPEG/PNG by magic bytes and drops anything before them (AddressBook blobs carry a
+  /// leading marker byte). Returns nil for other content, e.g. an external-data reference.
+  public init?(imageData blob: Data) {
+    let jpeg: [UInt8] = [0xFF, 0xD8, 0xFF]
+    let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+    let head = Array(blob.prefix(8))
+    for (magic, mime) in [(jpeg, "image/jpeg"), (png, "image/png")] {
+      if let start = head.indices.first(where: { head[$0...].starts(with: magic) }) {
+        self.mimeType = mime
+        self.data = Data(blob.dropFirst(start))
+        return
+      }
+    }
+    return nil
+  }
+}
+
 public protocol ContactResolving: Sendable {
   var contactsUnavailable: Bool { get }
   /// A view for optional live metadata. Catalog-backed resolvers refresh in the background.
@@ -28,10 +50,13 @@ public protocol ContactResolving: Sendable {
   func displayName(for handle: String) -> String?
   func displayNames(for handles: [String]) -> [String: String]
   func searchByName(_ query: String) -> [ContactMatch]
+  /// The contact's thumbnail, read lazily; nil when there is no contact, photo, or access.
+  func photo(for handle: String) -> ContactPhoto?
 }
 
 extension ContactResolving {
   public var cached: any ContactResolving { self }
+  public func photo(for handle: String) -> ContactPhoto? { nil }
 }
 
 public final class NoOpContactResolver: ContactResolving, Sendable {
@@ -222,6 +247,15 @@ public final class ContactResolver: ContactResolving, @unchecked Sendable {
     #else
       _ = query
       return []
+    #endif
+  }
+
+  public func photo(for handle: String) -> ContactPhoto? {
+    #if os(macOS)
+      return photo(for: handle, region: defaultRegion)
+    #else
+      _ = handle
+      return nil
     #endif
   }
 }

@@ -17,7 +17,7 @@
     let db = try Connection(directory.appendingPathComponent("AddressBook-v22.abcddb").path)
     try db.execute(
       """
-      CREATE TABLE ZABCDRECORD (Z_PK INTEGER PRIMARY KEY, ZNICKNAME TEXT, ZFIRSTNAME TEXT, ZLASTNAME TEXT);
+      CREATE TABLE ZABCDRECORD (Z_PK INTEGER PRIMARY KEY, ZNICKNAME TEXT, ZFIRSTNAME TEXT, ZLASTNAME TEXT, ZTHUMBNAILIMAGEDATA BLOB);
       CREATE TABLE ZABCDPHONENUMBER (ZOWNER INTEGER, ZFULLNUMBER TEXT);
       CREATE TABLE ZABCDEMAILADDRESS (ZOWNER INTEGER, ZADDRESS TEXT);
       """)
@@ -27,7 +27,9 @@
   private func addAddressBookContact(
     _ db: Connection, name: String, phone: String, email: String
   ) throws {
-    try db.run("INSERT INTO ZABCDRECORD VALUES (1, '', ?, 'Example')", name)
+    try db.run(
+      "INSERT INTO ZABCDRECORD (Z_PK, ZNICKNAME, ZFIRSTNAME, ZLASTNAME) VALUES (1, '', ?, 'Example')",
+      name)
     try db.run("INSERT INTO ZABCDPHONENUMBER VALUES (1, ?)", phone)
     try db.run("INSERT INTO ZABCDEMAILADDRESS VALUES (1, ?)", email)
   }
@@ -42,6 +44,33 @@
     )
     return ContactResolver(
       region: "US", source: source.allowingAddressBook(at: directory), refreshInterval: 0)
+  }
+
+  @Test
+  func addressBookPhotoStripsMarkerAndSkipsExternalOrMissingBlobs() throws {
+    let directory = try addressBookFixtureDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let db = try addressBookFixture(directory, source: "account")
+    try addAddressBookContact(db, name: "Ada", phone: "+14155550111", email: "ada@example.invalid")
+    let jpeg = Data([0x01, 0xFF, 0xD8, 0xFF, 0xE0, 0x00])
+    try db.run("UPDATE ZABCDRECORD SET ZTHUMBNAILIMAGEDATA = ?", Blob(bytes: Array(jpeg)))
+    let resolver = addressBookResolver(directory)
+    let photo = resolver.photo(for: "+1 (415) 555-0111")
+    #expect(photo?.mimeType == "image/jpeg")
+    #expect(photo?.data == jpeg.dropFirst())
+    #expect(resolver.photo(for: "ADA@example.invalid") == photo)
+    #expect(resolver.photo(for: "+14155550999") == nil)
+
+    let png = Data([0x01, 0x89, 0x50, 0x4E, 0x47, 0x0D])
+    try db.run("UPDATE ZABCDRECORD SET ZTHUMBNAILIMAGEDATA = ?", Blob(bytes: Array(png)))
+    #expect(ContactPhoto(imageData: png)?.mimeType == "image/png")
+    #expect(ContactPhoto(imageData: Data([0x02, 0x41, 0x42])) == nil)
+
+    // Marker 0x02 points at an external-data file; it is not offered as a photo.
+    try db.run("UPDATE ZABCDRECORD SET ZTHUMBNAILIMAGEDATA = ?", Blob(bytes: [0x02, 0x41, 0x42]))
+    let records = try AddressBookContacts.load(
+      directory: directory, accountsDatabase: nil)
+    #expect(records.first?.photoRef == nil)
   }
 
   @Test(arguments: [true, false])
