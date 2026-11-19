@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add RPC `contacts.photo`, which returns a contact's thumbnail (base64 JPEG/PNG) for a phone or email handle, read-only from Contacts.framework or the AddressBook fallback.
 - Opt a local (non-SSH) process into the read-only AddressBook contact-name fallback with `IMSG_CONTACTS_SOURCE=addressbook`, for setups with Full Disk Access but no Contacts grant.
 
 ## 0.21.0 - 2026-11-05

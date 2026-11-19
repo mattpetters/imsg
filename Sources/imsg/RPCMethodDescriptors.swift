@@ -50,7 +50,7 @@ enum RPCDispatchRoute: Sendable, Equatable {
   case tapback, typing, read, messageEdit, messageUnsend, messageDelete
   case messageNotifyAnyways, messageSendStatus, chatsCreate, chatsDelete, chatsMarkUnread
   case groupRename, groupSetIcon, groupAddParticipant, groupRemoveParticipant, groupLeave
-  case contactsShouldShare, contactsShare, contactsSetNamePhoto, handlesCheck
+  case contactsShouldShare, contactsShare, contactsSetNamePhoto, handlesCheck, contactsPhoto
 }
 
 struct RPCMethodDescriptor: Sendable, Equatable {
@@ -211,6 +211,7 @@ let rpcMethodDescriptors: [RPCMethodDescriptor] = [
     "handles.check", route: .handlesCheck, lane: .read,
     bridge: .selector("checkIMessageAvailability", requiresRegistry: false),
     macOSOnly: true),
+  RPCMethodDescriptor("contacts.photo", route: .contactsPhoto, lane: .read),
 ]
 
 let kSupportedRPCMethods: [String] =

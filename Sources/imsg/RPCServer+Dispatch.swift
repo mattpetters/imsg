@@ -107,6 +107,8 @@ extension RPCServer {
         try await handleNamePhotoSet(params: params, id: id)
       case .handlesCheck:
         try await handleHandlesCheck(params: params, id: id)
+      case .contactsPhoto:
+        try await handleContactsPhoto(params: params, id: id)
       }
     } catch is CancellationError {
       return .completed

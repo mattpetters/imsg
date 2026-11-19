@@ -69,17 +69,43 @@
       }
     }
 
+    static let photoRefPrefix = "ab:"
+
+    // Skips empty blobs and marker 0x02 (image kept in an external-data file, not read here).
+    private static let hasPhotoSQL =
+      "COALESCE(length(r.ZTHUMBNAILIMAGEDATA) > 0 AND hex(substr(r.ZTHUMBNAILIMAGEDATA, 1, 1)) != '02', 0)"
+
+    /// Reads one record's thumbnail blob on demand, read-only. `ref` comes from `loadDatabase`.
+    static func photo(ref: String) -> Data? {
+      let body = ref.dropFirst(photoRefPrefix.count)
+      guard let split = body.lastIndex(of: "#"), let id = Int64(body[body.index(after: split)...])
+      else { return nil }
+      do {
+        let db = try Connection(String(body[..<split]), readonly: true)
+        db.busyTimeout = 0.25
+        guard
+          let blob = try db.scalar(
+            "SELECT ZTHUMBNAILIMAGEDATA FROM ZABCDRECORD WHERE Z_PK = ?", id) as? Blob
+        else { return nil }
+        return Data(blob.bytes)
+      } catch {
+        return nil
+      }
+    }
+
     private static func loadDatabase(_ url: URL) throws -> [ContactCatalogRecord] {
       let db = try Connection(url.path, readonly: true)
       db.busyTimeout = 0.25
       let rows = try db.prepareRowIterator(
         """
         SELECT r.Z_PK AS id, r.ZNICKNAME AS nickname, r.ZFIRSTNAME AS first_name,
-               r.ZLASTNAME AS last_name, p.ZFULLNUMBER AS phone, NULL AS email
+               r.ZLASTNAME AS last_name, p.ZFULLNUMBER AS phone, NULL AS email,
+               \(hasPhotoSQL) AS has_photo
         FROM ZABCDRECORD r JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
         UNION ALL
         SELECT r.Z_PK AS id, r.ZNICKNAME AS nickname, r.ZFIRSTNAME AS first_name,
-               r.ZLASTNAME AS last_name, NULL AS phone, e.ZADDRESS AS email
+               r.ZLASTNAME AS last_name, NULL AS phone, e.ZADDRESS AS email,
+               \(hasPhotoSQL) AS has_photo
         FROM ZABCDRECORD r JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
         ORDER BY id, phone, email
         """, bindings: [])
@@ -93,7 +119,10 @@
           nickname.isEmpty ? [first, last].filter { !$0.isEmpty }.joined(separator: " ") : nickname
         guard !name.isEmpty else { continue }
         if contacts[id] == nil {
-          contacts[id] = ContactCatalogRecord(name: name, phones: [], emails: [])
+          let hasPhoto = try row.get(Expression<Int64>("has_photo")) != 0
+          contacts[id] = ContactCatalogRecord(
+            name: name, phones: [], emails: [],
+            photoRef: hasPhoto ? "\(photoRefPrefix)\(url.path)#\(id)" : nil)
         }
         if let phone = try row.get(Expression<String?>("phone")), !phone.isEmpty {
           contacts[id]?.phones.append(phone)
@@ -126,7 +155,11 @@
           case .restricted: throw AddressBookContacts.ReadError.unavailable
           }
         },
-        observeChanges: observeChanges
+        observeChanges: observeChanges,
+        photo: { ref in
+          ref.hasPrefix(AddressBookContacts.photoRefPrefix)
+            ? AddressBookContacts.photo(ref: ref) : photo(ref)
+        }
       )
     }
   }

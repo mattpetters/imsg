@@ -745,6 +745,26 @@ Result:
 }
 ```
 
+### `contacts.photo`
+
+Returns the thumbnail of the contact matching a handle. Read-only and lazy: the image is read per request, not held in the contact catalog. Handles match contacts exactly as name resolution does (same phone normalization and email matching), from the same source (Contacts.framework, or the AddressBook fallback when enabled; see [permissions](permissions.md)). AddressBook photos stored in an external-data file are not returned.
+
+Params:
+
+- `handle` (string, required) — phone number or email address. No other params are accepted.
+
+Result:
+
+```json
+{ "handle": "+14155551212", "mime_type": "image/jpeg", "data": "<base64>" }
+```
+
+When there is no matching contact, no photo, or no Contacts access, the request still succeeds with `mime_type` and `data` both `null`:
+
+```json
+{ "handle": "+14155551212", "mime_type": null, "data": null }
+```
+
 ### Native polls
 
 `poll.send` creates a native Apple Messages Polls extension balloon through the IMCore bridge. The bridge must be injected with `imsg launch`; the AppleScript transport cannot send native extension payloads. Messages does not render the poll payload title on the balloon, so `poll.send` also sends a best-effort plain caption message right after the poll. The caption defaults to `question`; pass `comment` when the visible caption should differ from the stored poll question, or set `suppress_comment` to `true` when the caller already sent its own visible context and needs only the poll balloon. `comment` and `suppress_comment: true` are mutually exclusive. The camelCase alias `suppressComment` is also accepted.

@@ -16,17 +16,22 @@
     let name: String
     var phones: [String]
     var emails: [String]
+    /// Opaque key the source resolves to a thumbnail on demand; nil when there is no photo.
+    var photoRef: String? = nil
   }
 
   struct ContactCatalogSource: @unchecked Sendable {
     let authorization: () -> ContactCatalogAuthorization
     let load: () throws -> [ContactCatalogRecord]
     let observeChanges: (@escaping @Sendable () -> Void) -> (() -> Void)
+    var photo: (String) -> Data? = { _ in nil }
   }
 
   struct ContactCatalogSnapshot: Sendable {
     let phoneToName: [String: String]
     let emailToName: [String: String]
+    let phoneToPhotoRef: [String: String]
+    let emailToPhotoRef: [String: String]
     let contacts: [ContactCatalogRecord]
   }
 
@@ -68,6 +73,22 @@
         if let name { resolved[handle] = name }
       }
       return resolved
+    }
+
+    func photo(for handle: String, region: String, waitForRefresh: Bool = true) -> ContactPhoto? {
+      let state = snapshot(region: region, waitForRefresh: waitForRefresh)
+      guard !state.unavailable else { return nil }
+      let lookup = Self.normalizedLookupHandle(handle)
+      let ref: String?
+      if lookup.contains("@") {
+        ref = state.catalog.emailToPhotoRef[lookup.lowercased()]
+      } else {
+        condition.lock()
+        ref = state.catalog.phoneToPhotoRef[normalizer.normalize(lookup, region: region)]
+        condition.unlock()
+      }
+      guard let ref, let blob = source.photo(ref) else { return nil }
+      return ContactPhoto(imageData: blob)
     }
 
     func searchByName(
@@ -203,6 +224,8 @@
 
       var phoneToName: [String: String] = [:]
       var emailToName: [String: String] = [:]
+      var phoneToPhotoRef: [String: String] = [:]
+      var emailToPhotoRef: [String: String] = [:]
       var normalizedContacts: [ContactCatalogRecord] = []
       normalizedContacts.reserveCapacity(records.count)
       for contact in records {
@@ -214,12 +237,20 @@
         for email in emails {
           emailToName[email] = emailToName[email] ?? contact.name
         }
+        if let ref = contact.photoRef {
+          // First contact with a photo wins, so a photo-less duplicate does not hide it.
+          for phone in phones { phoneToPhotoRef[phone] = phoneToPhotoRef[phone] ?? ref }
+          for email in emails { emailToPhotoRef[email] = emailToPhotoRef[email] ?? ref }
+        }
         normalizedContacts.append(
-          ContactCatalogRecord(name: contact.name, phones: phones, emails: emails))
+          ContactCatalogRecord(
+            name: contact.name, phones: phones, emails: emails, photoRef: contact.photoRef))
       }
       let created = ContactCatalogSnapshot(
         phoneToName: phoneToName,
         emailToName: emailToName,
+        phoneToPhotoRef: phoneToPhotoRef,
+        emailToPhotoRef: emailToPhotoRef,
         contacts: normalizedContacts
       )
       snapshots[region] = created
@@ -274,8 +305,15 @@
             changed()
           }
           return { center.removeObserver(token) }
-        }
+        },
+        photo: { nativePhoto(store: store, identifier: $0) }
       )
+    }
+
+    static func nativePhoto(store: CNContactStore, identifier: String) -> Data? {
+      let keys = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
+      return try? store.unifiedContact(withIdentifier: identifier, keysToFetch: keys)
+        .thumbnailImageData
     }
 
     static func catalogAuthorization(
@@ -302,6 +340,7 @@
         CNContactNicknameKey as CNKeyDescriptor,
         CNContactPhoneNumbersKey as CNKeyDescriptor,
         CNContactEmailAddressesKey as CNKeyDescriptor,
+        CNContactImageDataAvailableKey as CNKeyDescriptor,
       ]
       let request = CNContactFetchRequest(keysToFetch: keysToFetch)
       var contacts: [ContactCatalogRecord] = []
@@ -310,7 +349,10 @@
         let phones = contact.phoneNumbers.map(\.value.stringValue)
         let emails = contact.emailAddresses.map { String($0.value) }
         if !phones.isEmpty || !emails.isEmpty {
-          contacts.append(ContactCatalogRecord(name: name, phones: phones, emails: emails))
+          contacts.append(
+            ContactCatalogRecord(
+              name: name, phones: phones, emails: emails,
+              photoRef: contact.imageDataAvailable ? contact.identifier : nil))
         }
       }
       return contacts
@@ -354,6 +396,10 @@
 
     func searchByName(_ query: String) -> [ContactMatch] {
       owner.searchByName(query, region: region, waitForRefresh: waitForRefresh)
+    }
+
+    func photo(for handle: String) -> ContactPhoto? {
+      owner.photo(for: handle, region: region, waitForRefresh: waitForRefresh)
     }
   }
 #endif
