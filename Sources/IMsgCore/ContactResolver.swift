@@ -110,6 +110,17 @@ public final class ContactResolver: ContactResolving, @unchecked Sendable {
     }
   #endif
 
+  /// Environment variable that opts a local, non-SSH process into the read-only AddressBook
+  /// fallback, e.g. a terminal app that has Full Disk Access but no Contacts grant.
+  public static let contactsSourceEnvironmentKey = "IMSG_CONTACTS_SOURCE"
+
+  /// True under SSH, or when `IMSG_CONTACTS_SOURCE=addressbook` is set. Contacts.framework
+  /// stays the first source either way; the AddressBook stores are only the fallback.
+  static func allowsAddressBookFallback(environment: [String: String]) -> Bool {
+    if environment["SSH_CONNECTION"] != nil || environment["SSH_CLIENT"] != nil { return true }
+    return environment[contactsSourceEnvironmentKey]?.lowercased() == "addressbook"
+  }
+
   public static func create(
     region: String = "US",
     accessPolicy: ContactsAccessPolicy = .requestIfNeeded
@@ -124,7 +135,7 @@ public final class ContactResolver: ContactResolving, @unchecked Sendable {
       }
       let nativeSource = contactSource(store: store)
       let source =
-        isSSH
+        allowsAddressBookFallback(environment: environment)
         ? nativeSource.allowingAddressBook(
           at: AddressBookContacts.directory,
           accountsDatabase: AddressBookContacts.accountsDatabaseURL)

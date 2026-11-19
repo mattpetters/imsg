@@ -422,3 +422,17 @@ func noOpContactResolverCanRepresentUnavailableContacts() {
     #expect(source.loadCount == 1)
   }
 #endif
+
+@Test
+func addressBookFallbackIsOptInOutsideSSH() {
+  #expect(ContactResolver.allowsAddressBookFallback(environment: [:]) == false)
+  #expect(ContactResolver.allowsAddressBookFallback(environment: ["SSH_CONNECTION": "1 2 3 4"]))
+  #expect(ContactResolver.allowsAddressBookFallback(environment: ["SSH_CLIENT": "1 2 3"]))
+  #expect(
+    ContactResolver.allowsAddressBookFallback(environment: ["IMSG_CONTACTS_SOURCE": "addressbook"]))
+  #expect(
+    ContactResolver.allowsAddressBookFallback(environment: ["IMSG_CONTACTS_SOURCE": "AddressBook"]))
+  #expect(
+    ContactResolver.allowsAddressBookFallback(environment: ["IMSG_CONTACTS_SOURCE": "contacts"])
+      == false)
+}

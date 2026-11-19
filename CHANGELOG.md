@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Opt a local (non-SSH) process into the read-only AddressBook contact-name fallback with `IMSG_CONTACTS_SOURCE=addressbook`, for setups with Full Disk Access but no Contacts grant.
+
 ## 0.21.0 - 2026-11-05
 
 **Highlights:** Mention people in rich messages, position stickers on message bubbles, and explicitly set your Messages Name & Photo, with fixes for typing events, subjects, delivery verification, and recoverable deletion.
